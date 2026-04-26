@@ -25,6 +25,12 @@ struct GameView: View {
                     .transition(.scale.combined(with: .opacity))
             }
         }
+        .overlay {
+            if engine.isRecalibrating {
+                RecalibratingOverlay()
+                    .transition(.opacity)
+            }
+        }
         .sheet(isPresented: $showPauseMenu) {
             PauseMenu(isPresented: $showPauseMenu)
                 .presentationDetents([.medium])
@@ -37,6 +43,7 @@ struct GameView: View {
                 .presentationDragIndicator(.visible)
         }
         .animation(.easeInOut(duration: 0.2), value: engine.bustFlash)
+        .animation(.easeInOut(duration: 0.2), value: engine.isRecalibrating)
     }
 
     // MARK: - Header (Kamera-Vorschau)
@@ -202,6 +209,46 @@ struct GameView: View {
             .padding(.horizontal, 14)
             .padding(.top, 8)
             .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
+// MARK: - Recalibrating Overlay
+private struct RecalibratingOverlay: View {
+    var body: some View {
+        ZStack {
+            Color.dBg0.opacity(0.78).ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ZStack {
+                    Circle()
+                        .stroke(Color.dPurple.opacity(0.5), style: StrokeStyle(lineWidth: 1.5, dash: [3, 4]))
+                        .frame(width: 70, height: 70)
+                    Circle()
+                        .stroke(Color.dPurple.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                        .frame(width: 36, height: 36)
+                    PulseDot()
+                }
+
+                VStack(spacing: 4) {
+                    Text("Bewegung erkannt")
+                        .font(DartsFont.sans(15, weight: .semibold))
+                        .foregroundStyle(Color.dText)
+                    Text("Halte das Gerät still — Kalibrierung läuft …")
+                        .font(DartsFont.sans(12))
+                        .foregroundStyle(Color.dTextMuted)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 24)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 22)
+            .background(Color.dBg2)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16).stroke(Color.dBorder, lineWidth: 0.5)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.4), radius: 18, y: 6)
         }
     }
 }

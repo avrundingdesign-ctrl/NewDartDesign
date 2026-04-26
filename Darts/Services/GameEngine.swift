@@ -29,6 +29,11 @@ final class GameEngine: ObservableObject {
     // MARK: - Capture-Status (rein für UI-Anzeige)
     @Published var captureStatus: CaptureStatus = .idle
 
+    /// Wird `true`, sobald sich das Gerät während des Spiels signifikant bewegt hat —
+    /// Keypoints werden geleert, Score-Processing pausiert, ein Overlay informiert den User.
+    /// Wird wieder `false`, sobald der Server frische Keypoints geliefert hat.
+    @Published var isRecalibrating: Bool = false
+
     // MARK: - Letzte Runde (für Korrektur)
     @Published private(set) var lastTurn: TurnSnapshot?
 
@@ -83,6 +88,39 @@ final class GameEngine: ObservableObject {
             }
         }
         observers.append(still)
+
+        // Bewegung während des Spiels → Keypoints werden ungültig, Recalibration triggern.
+        cameraService.motionDetector.$isStill
+            .removeDuplicates()
+            .sink { [weak self] still in
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard self.phase == .playing else { return }
+                    // Wir wollen NUR triggern, wenn das Gerät zuvor stabil kalibriert war
+                    // und sich jetzt bewegt — also: still wechselt von true → false,
+                    // setup.keypoints existieren und wir sind nicht schon in Recalibration.
+                    if !still, self.setup.keypoints != nil, !self.isRecalibrating {
+                        self.beginRecalibration()
+                    }
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Recalibration durch Bewegung
+
+    private func beginRecalibration() {
+        isRecalibrating = true
+        setup.keypoints = nil
+        // laufenden Turn-Status nicht anrühren — Score-Processing wird in handleServerResponse pausiert.
+        dartTracker.reset()
+        captureStatus = .stilling
+        speech.stop()
+    }
+
+    private func endRecalibration() {
+        isRecalibrating = false
+        captureStatus = cameraService.motionDetector.hasBeenStillFor2Sec ? .ready : .stilling
     }
 
     // MARK: - Setup-Phase
@@ -218,6 +256,15 @@ final class GameEngine: ObservableObject {
         // Keypoints sichern, falls Calibration sie nicht schon gesetzt hat.
         if setup.keypoints == nil, let kp = Keypoints(server: response.keypoints) {
             setup.keypoints = kp
+        }
+
+        // Recalibration läuft → Server hat frische Keypoints geliefert → fertig, Spiel resumen.
+        // Darts werden in diesem Frame ignoriert, weil sie aus einer Re-Detection ohne Score-Kontext stammen.
+        if isRecalibrating {
+            if setup.keypoints != nil {
+                endRecalibration()
+            }
+            return
         }
 
         let countBefore = dartTracker.getHistoryCount()
